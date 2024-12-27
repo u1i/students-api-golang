@@ -6,7 +6,8 @@ A RESTful API built with Go and SQLite that provides CRUD operations for managin
 
 - `main.go` - Main API server implementation
 - `init_db.go` - Database initialization script with sample data
-- `students.db` - SQLite database file (created when running the application)
+- `swagger.yaml` - OpenAPI/Swagger specification for the API
+- `students.db` - Default SQLite database file (created when running the application)
 
 ## Prerequisites
 
@@ -17,8 +18,8 @@ A RESTful API built with Go and SQLite that provides CRUD operations for managin
 
 1. Clone the repository:
 ``` 
-git clone <your-repo-url>
-cd <repo-directory>
+git clone https://github.com/yourusername/students-api-golang.git
+cd students-api-golang
 ```
 
 2. Install dependencies:
@@ -28,31 +29,69 @@ go mod tidy
 
 3. Initialize the database with sample data:
 ``` 
+# Use default database location (./students.db)
 go run init_db.go
+
+# Or specify a custom database location
+go run init_db.go --db /path/to/your/students.db
 ```
 
 4. Start the API server:
 ``` 
+# Use default port (8080) and default database
 go run main.go
+
+# Use custom port and/or custom database
+go run main.go --port 8082 --db /path/to/your/students.db
 ```
 
-The server will start on http://localhost:8080
+The server will start on the specified port (default: 8080) using the specified database (default: ./students.db). 
+If the default port is already in use, you'll receive a helpful message suggesting to use a different port with the `--port` flag.
+The database file and its directory will be created automatically if they don't exist.
+
+## API Documentation
+
+The API documentation is available in OpenAPI/Swagger format. You can access it at:
+# If using default port
+curl http://localhost:8080/swagger
+
+# If using custom port (e.g., 8082)
+curl http://localhost:8082/swagger
+
+You can also use this URL with Swagger UI or other OpenAPI tools to visualize and interact with the API documentation.
 
 ## API Endpoints and Usage
 
+Replace `<port>` in the examples below with your chosen port number (default: 8080)
+
+### Root Endpoint
+``` 
+curl http://localhost:<port>/
+```
+
+Response:
+``` 
+{
+    "message": "Welcome to Students API",
+    "description": "A RESTful API for managing student records with CRUD operations",
+    "swagger_url": "/swagger",
+    "version": "1.0.0"
+}
+```
+
 ### Get All Students
 ``` 
-curl http://localhost:8080/students
+curl http://localhost:<port>/students
 ```
 
 ### Get a Specific Student
 ``` 
-curl http://localhost:8080/students/1
+curl http://localhost:<port>/students/1
 ```
 
 ### Create a New Student
 ``` 
-curl -X POST http://localhost:8080/students \
+curl -X POST http://localhost:<port>/students \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Alice Brown",
@@ -64,7 +103,7 @@ curl -X POST http://localhost:8080/students \
 
 ### Update a Student
 ``` 
-curl -X PUT http://localhost:8080/students/1 \
+curl -X PUT http://localhost:<port>/students/1 \
   -H "Content-Type: application/json" \
   -d '{
     "name": "John Doe Updated",
@@ -76,7 +115,7 @@ curl -X PUT http://localhost:8080/students/1 \
 
 ### Delete a Student
 ``` 
-curl -X DELETE http://localhost:8080/students/1
+curl -X DELETE http://localhost:<port>/students/1
 ```
 
 ## API Response Codes

@@ -1,14 +1,22 @@
 package main
 
 import (
+	_ "embed"
 	"database/sql"
 	"encoding/json"
+	"flag"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/gorilla/mux"
 	_ "github.com/mattn/go-sqlite3"
 )
+
+//go:embed swagger.yaml
+var swaggerContent []byte
 
 type Student struct {
 	ID             int    `json:"id"`
@@ -18,14 +26,69 @@ type Student struct {
 	Phone          string `json:"phone"`
 }
 
+type WelcomeResponse struct {
+	Message     string `json:"message"`
+	Description string `json:"description"`
+	Swagger     string `json:"swagger_url"`
+	Version     string `json:"version"`
+}
+
 var db *sql.DB
 
-func initDB() {
+func initDB(dbPath string) error {
 	var err error
-	db, err = sql.Open("sqlite3", "./students.db")
-	if err != nil {
-		log.Fatal(err)
+	
+	// Ensure the directory exists
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		return fmt.Errorf("failed to create database directory: %v", err)
 	}
+
+	// Check if database file exists
+	fileExists := false
+	if _, err := os.Stat(dbPath); err == nil {
+		fileExists = true
+		// Check read permission by attempting to open the file
+		file, err := os.OpenFile(dbPath, os.O_RDONLY, 0)
+		if err != nil {
+			return fmt.Errorf("database file exists but is not readable: %v", err)
+		}
+		file.Close()
+
+		// Check write permission
+		file, err = os.OpenFile(dbPath, os.O_RDWR, 0)
+		if err != nil {
+			return fmt.Errorf("database file exists but is not writable: %v", err)
+		}
+		file.Close()
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to check database file: %v", err)
+	}
+
+	// Check if directory is writable if file doesn't exist
+	if !fileExists {
+		// Try to create a temporary file in the directory
+		tempFile := filepath.Join(dbDir, ".tmp_write_test")
+		file, err := os.OpenFile(tempFile, os.O_RDWR|os.O_CREATE, 0666)
+		if err != nil {
+			return fmt.Errorf("database directory is not writable: %v", err)
+		}
+		file.Close()
+		os.Remove(tempFile)
+	}
+
+	// Open database connection
+	db, err = sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to open database: %v", err)
+	}
+
+	// Test the connection and write permissions by performing a transaction
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction (database might be locked or not writable): %v", err)
+	}
+	tx.Rollback() // Always rollback this test transaction
 
 	// Create students table if it doesn't exist
 	createTableSQL := `CREATE TABLE IF NOT EXISTS students (
@@ -38,8 +101,17 @@ func initDB() {
 
 	_, err = db.Exec(createTableSQL)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to create table: %v", err)
 	}
+
+	log.Printf("Successfully connected to database: %s", dbPath)
+	if fileExists {
+		log.Printf("Using existing database file")
+	} else {
+		log.Printf("Created new database file")
+	}
+
+	return nil
 }
 
 func createStudent(w http.ResponseWriter, r *http.Request) {
@@ -158,11 +230,39 @@ func parseInt(s string) int {
 	return i
 }
 
+func serveSwagger(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/yaml")
+	w.Write(swaggerContent)
+}
+
+func welcomeHandler(w http.ResponseWriter, r *http.Request) {
+	response := WelcomeResponse{
+		Message:     "Welcome to Students API",
+		Description: "A RESTful API for managing student records with CRUD operations",
+		Swagger:     "/swagger",
+		Version:     "1.0.0",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 func main() {
-	initDB()
+	// Parse command line flags
+	port := flag.Int("port", 8080, "Port to run the server on")
+	dbPath := flag.String("db", "./students.db", "Path to SQLite database file")
+	flag.Parse()
+
+	// Initialize database
+	if err := initDB(*dbPath); err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
 	defer db.Close()
 
 	router := mux.NewRouter()
+
+	// Welcome endpoint
+	router.HandleFunc("/", welcomeHandler).Methods("GET")
 
 	// CRUD endpoints
 	router.HandleFunc("/students", createStudent).Methods("POST")
@@ -171,6 +271,20 @@ func main() {
 	router.HandleFunc("/students/{id}", updateStudent).Methods("PUT")
 	router.HandleFunc("/students/{id}", deleteStudent).Methods("DELETE")
 
-	log.Println("Server starting on port 8080...")
-	log.Fatal(http.ListenAndServe(":8080", router))
+	// Swagger endpoint
+	router.HandleFunc("/swagger", serveSwagger).Methods("GET")
+
+	serverAddr := fmt.Sprintf(":%d", *port)
+	log.Printf("Using database: %s", *dbPath)
+	log.Printf("Starting server on port %d...", *port)
+	log.Printf("To use a different port, restart with: %s --port <port-number>", os.Args[0])
+	
+	err := http.ListenAndServe(serverAddr, router)
+	if err != nil {
+		if err.Error() == fmt.Sprintf("listen tcp %s: bind: address already in use", serverAddr) {
+			log.Printf("Port %d is already in use. Try using a different port with: %s --port <port-number>", *port, os.Args[0])
+			os.Exit(1)
+		}
+		log.Fatal(err)
+	}
 }

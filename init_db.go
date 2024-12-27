@@ -2,16 +2,29 @@ package main
 
 import (
 	"database/sql"
+	"flag"
 	"log"
+	"os"
+	"path/filepath"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
+	// Parse command line flags
+	dbPath := flag.String("db", "./students.db", "Path to SQLite database file")
+	flag.Parse()
+
+	// Ensure the directory exists
+	dbDir := filepath.Dir(*dbPath)
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		log.Fatalf("Failed to create database directory: %v", err)
+	}
+
 	// Open database connection
-	db, err := sql.Open("sqlite3", "./students.db")
+	db, err := sql.Open("sqlite3", *dbPath)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to open database: %v", err)
 	}
 	defer db.Close()
 
@@ -26,7 +39,7 @@ func main() {
 
 	_, err = db.Exec(createTableSQL)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to create table: %v", err)
 	}
 
 	// Insert sample data
@@ -73,5 +86,5 @@ func main() {
 		}
 	}
 
-	log.Println("Database initialized successfully with sample data!")
+	log.Printf("Database initialized successfully at: %s", *dbPath)
 }
